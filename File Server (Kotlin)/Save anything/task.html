@@ -1,0 +1,81 @@
+<h5 id="description">Description</h5>
+<p>Write a program that sends real text and image files to the server in this stage. The server keeps the files and sends them back upon request until you delete them.</p>
+<p>Also, the server should be able to recognize each file by its unique identifier. If the file is created successfully, the server should output an integer identifier after the code <code class="language-kotlin">200</code> and a single space. If the creation of the file fails, no identifier is needed.</p>
+<p>From now on, you can access the file on the server using either its identifier or filename. To do that, specify whether you want to use the file id or the name after the <code class="language-kotlin">GET</code> or <code class="language-kotlin">DELETE</code> command. Let's use <code class="language-kotlin">BY_ID</code> and <code class="language-kotlin">BY_NAME</code> as keywords. Every time you want to get a file from the server, write either <code class="language-kotlin">GET BY_ID 12</code> or <code class="language-kotlin">GET BY_NAME filename.txt</code>. The same applies to <code class="language-kotlin">DELETE BY_ID</code> and <code class="language-kotlin">DELETE BY_NAME</code>. Note that you don't need these keywords with the <code class="language-kotlin">PUT</code> method; it just saves a new file on the server, and the server sends you a unique file id.</p>
+<p>Of course, most files are usually larger than just one text line. Saving larger files may take a while, so use a parallel approach. For example, you may want to use executors, and every time the client sends a request, you should perform the requested task in the thread pool, not in the main thread. The main thread should wait for another request. Note that the map of identifiers to the file names should be used synchronously because different threads have access to it. Do not forget to save this map somewhere because you don't want to lose it when the server reboots. After rebooting the server, check that the ID generation process does not start right away.</p>
+<p>Notice that you can't send bytes via text stream: while bytes require a single-byte stream, a text stream is variable-byte (this is because Strings in Kotlin are encoded in the UTF format when they are sent using <code class="language-kotlin">DataInputStream</code>). The solution is sending the byte array itself (<code class="language-kotlin">ByteArray</code>), not the bytes encoded as text. When you receive an array of bytes, you can't say where the end of the stream is, unlike the case with the <code class="language-kotlin">readUTF</code> method where you read only one string at a time. This problem can be solved by adding the number of bytes at the very start of the stream. The sender calculates and sends this number followed by the byte stream, and the receiver reads the number and then reads the stream with the specified number of bytes. You can use the following snippets to understand how this works:</p>
+<pre><code class="language-kotlin">val address = "127.0.0.1"
+val port = 23456
+val socket = Socket(InetAddress.getByName(address), port)
+val output = DataOutputStream(socket.getOutputStream())
+
+val message = File("myFile.bin").readBytes()  // Read ByteArray from a file
+output.writeInt(message.size)                 // write length of the message
+output.write(message)                         // write the message</code></pre>
+<pre><code class="language-kotlin">val address = "127.0.0.1"
+val port = 23456
+val server = ServerSocket(port, 50, InetAddress.getByName(address))
+val socket = server.accept()
+val input = DataInputStream(socket.getInputStream())
+
+val length = input.readInt()
+val message = ByteArray(length)
+input.readFully(message, 0, message.size)</code></pre>
+<p>In this stage, write a client program that prompts the user for action. If they want to save a file on the server, the program should ask the user which files from the <em>../client/data</em> folder needs to be saved. After that, the user should specify the file name (the name should not contain spaces or tabs). If the user doesn't want to specify the name, they should press <code class="language-kotlin">Enter</code> without typing anything. The server should generate a unique name for this file and send back the id. The file should be saved in the <em>.../server/data/</em> folder. Create your implementation of this behavior.</p>
+<p>If the user wants to get a file, the client program should ask whether the user wants to use the id or the name of the file. After entering the id or the name, the user must specify the name under which the file should be saved. The file should be saved in the <em>.../client/data/</em> folder.</p>
+<p>If the user wants to delete a file, the client program should ask if the user wants to use the id or the name of the file. After either the id or the name has been entered, the program should send the request to the server.</p>
+<p>Since the server cannot shut down by itself and the tests require that the program stops at a certain point, you should implement a simple way to stop the server. The client should be able to handle the <code class="language-kotlin">exit</code> action and send the respective message to the server. When the client sends <code class="language-kotlin">exit</code>, you should stop the server. Note: you shouldn't allow this behavior in a normal situation when no testing needs to be done.</p>
+<h5 id="objectives">Objectives</h5>
+<p>In this stage, your client-side program should:</p>
+<ol>
+<li>Prompt the user to enter an action;</li>
+<li>For the <code class="language-kotlin">GET</code> and <code class="language-kotlin">DELETE</code> action, ask the user if they want to <code class="language-kotlin">GET</code> or <code class="language-kotlin">DELETE</code> the file <code class="language-kotlin">BY_ID</code> or <code class="language-kotlin">BY_NAME</code> (not required for <code class="language-kotlin">PUT</code>);</li>
+<li>Prompt the user to enter the content of the file (if applicable);</li>
+<li>Send the request to the server and receive a response from the server;</li>
+<li>Print the respective message after receiving the response and ask the user where they would like to save the received file (if applicable);</li>
+<li>Disconnect from the server and terminate.</li>
+</ol>
+<p>The server-side program should:</p>
+<ol>
+<li>Print the <code class="language-kotlin">Server started!</code> message when the program starts;</li>
+<li>Receive a request from the client and respond accordingly;</li>
+<li>Send a response depending on the type of request:</li>
+</ol>
+<ul>
+<li>For a <code class="language-kotlin">PUT</code> request, send a status code <code class="language-kotlin">200</code> and a unique <code class="language-kotlin">INTEGER IDENTIFIER</code> separated by a single space if the file is created successfully; otherwise, send a status code <code class="language-kotlin">403</code>;</li>
+<li>For a <code class="language-kotlin">GET</code> request, send a <code class="language-kotlin">200</code> status code and the <code class="language-kotlin">FILE_CONTENT</code> separated by a single space if the file exists; otherwise, send a <code class="language-kotlin">404</code> status code;</li>
+<li>For a <code class="language-kotlin">DELETE</code> request, send a <code class="language-kotlin">200</code> status code if the file is deleted successfully; otherwise, send a <code class="language-kotlin">404</code> status code;</li>
+</ul>
+<p>4. The server program should not terminate until it receives the <code class="language-kotlin">exit</code> command.</p>
+<h5 id="examples">Examples</h5>
+<p>The greater-than symbol followed by a space (<code class="language-kotlin">&gt; </code>) represents the user input. Note that it's not part of the input.</p>
+<p><strong>Example 1:</strong></p>
+<pre><code class="language-no-highlight">Enter action (1 - get a file, 2 - save a file, 3 - delete a file): &gt; 2
+Enter name of the file: &gt; my_cat.jpg
+Enter name of the file to be saved on server: &gt;
+The request was sent.
+Response says that file is saved! ID = 23</code></pre>
+<p><strong>Example 2:</strong></p>
+<pre><code class="language-no-highlight">Enter action (1 - get a file, 2 - save a file, 3 - delete a file): &gt; 1
+Do you want to get the file by name or by id (1 - name, 2 - id): &gt; 2
+Enter id: &gt; 23
+The request was sent.
+The file was downloaded! Specify a name for it: &gt; cat.jpg
+File saved on the hard drive!</code></pre>
+<p><strong>Example 3:</strong></p>
+<pre><code class="language-no-highlight">Enter action (1 - get a file, 2 - save a file, 3 - delete a file): &gt; 3
+Do you want to delete the file by name or by id (1 - name, 2 - id): &gt; 2
+Enter id: &gt; 23
+The request was sent.
+The response says that this file was deleted successfully!</code></pre>
+<p><strong>Example 4:</strong></p>
+<pre><code class="language-no-highlight">Enter action (1 - get a file, 2 - save a file, 3 - delete a file): &gt; 3
+Do you want to delete the file by name or by id (1 - name, 2 - id): &gt; 2
+Enter id: &gt; 23
+The request was sent.
+The response says that this file is not found!
+</code></pre>
+<p><strong>Example 5:</strong></p>
+<pre><code class="language-no-highlight">Enter action (1 - get a file, 2 - save a file, 3 - delete a file): &gt; exit
+The request was sent.
+</code></pre>

@@ -1,0 +1,5 @@
+# Project exclude paths
+/.gradle/
+/File Server (Kotlin)/task/build/
+/File Server (Kotlin)/task/out/
+/File Server (Kotlin)/task/out/production/classes/

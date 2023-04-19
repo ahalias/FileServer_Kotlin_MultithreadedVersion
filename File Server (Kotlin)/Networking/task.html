@@ -1,0 +1,50 @@
+<h5 id="description">Description</h5>
+<p>We aim to store files on the file server and make them accessible through the Internet. To achieve that, separate the program. Make two of them: a file server, which stores our files and processes client requests, and a client to make requests to <code class="language-kotlin">create</code>, <code class="language-kotlin">get</code>, and <code class="language-kotlin">delete</code> files on our server.</p>
+<p>Let's consider an essential term for this stage: Java <code class="language-kotlin">Socket</code>. A socket is an interface used to send and receive data between different processes running on the same computer or others connected through the Internet.</p>
+<p>In this stage, you will implement the simplest connection between one server and one client. The client should send the message <code class="language-kotlin">Give me everything you have!</code> to the server, and the server should reply <code class="language-kotlin">All files were sent!</code>. The client and server should print the received messages to the console.</p>
+<p>The very first message the server outputs before the client connects to it should be <code class="language-kotlin">Server started!</code>.</p>
+<p>The client must know the server's address to connect to the server. The address consists of two parts: the IP address and the port number. In your program, use <em>127.0.0.1 </em>as the IP address, which is the localhost (your computer). The port can be any number from <em>0</em> to <em>65535</em>, preferably higher than <em>1024</em>. The server and the client should use the same IP address and port number; otherwise, they won't find each other.</p>
+<p>To start, import <code class="language-kotlin">java.io.*</code> and <code class="language-kotlin">java.net.*</code> necessary for input/output operations with the socket.</p>
+<p>Let's take a look at the client-side code:</p>
+<pre><code class="language-kotlin">val address = "127.0.0.1"
+val port = 23456
+val socket = Socket(InetAddress.getByName(address), port)
+val input = DataInputStream(socket.getInputStream())
+val output = DataOutputStream(socket.getOutputStream())</code></pre>
+<p>The client creates a new socket, which means that it's trying to connect to the server. The successful creation of a socket means that the client has found the server and connected to it.</p>
+<p>After that, you can see the creation of the <code class="language-kotlin">DataInputStream</code> and <code class="language-kotlin">DataOutputStream</code> objects. These are input and output connections to the server. If you expect data from the server, you need to write <code class="language-kotlin">input.readUTF().</code> This returns the String object that the server sent to the client. If you want to send data to the server, you need to write <code class="language-kotlin">output.writeUTF(stringText)</code>, and the message will be sent to the server.</p>
+<p>Now, let's look at the server-side code:</p>
+<pre><code class="language-kotlin">val address = "127.0.0.1"
+val port = 23456
+val server = ServerSocket(port, 50, InetAddress.getByName(address))
+val socket = server.accept()
+val input = DataInputStream(socket.getInputStream())
+val output = DataOutputStream(socket.getOutputStream())</code></pre>
+<p>The server creates a <code class="language-kotlin">ServerSocket</code> object that listens for client connections. When the client connects, the <code class="language-kotlin">server.accept()</code> method returns the socket connection to the client. After that, two objects are created: <code class="language-kotlin">DataInputStream</code> and <code class="language-kotlin">DataOutputStream</code>. These are the input and output connections to the client, now from the server side. To receive data from the client, you need to write <code class="language-kotlin">input.readUTF()</code>. To send data to the client, write <code class="language-kotlin">output.writeUTF(stringText)</code>.</p>
+<p>Create two packages named <code class="language-kotlin">client</code> and <code class="language-kotlin">server</code> and then create the <code class="language-kotlin">Main.java</code> function in both of these packages. Both classes should contain the <code class="language-kotlin">main(args: Array&lt;String&gt;)</code> method. To start the server, just run <code class="language-kotlin">main</code> from the <code class="language-kotlin">server</code> package. To start the client, run <code class="language-kotlin">main</code> from the <code class="language-kotlin">client</code> package. The tests depend on the presence of these classes!</p>
+<p>Finally, make sure to close all the sockets and streams!</p>
+<h5 id="objectives">Objectives</h5>
+<p>In this stage, your client-side program should:</p>
+<ol>
+<li>Print <code class="language-kotlin">Client started!</code> when the program starts;</li>
+<li>Send the message <code class="language-kotlin">Give me everything you have!</code> to the server;</li>
+<li>Receive a response message from the server.</li>
+</ol>
+<p>Your server-side program should:</p>
+<ol>
+<li>Print <code class="language-kotlin">Server started!</code> when the program starts;</li>
+<li>Receive a message from the client;</li>
+<li>Send the response message <code class="language-kotlin">All files were sent!</code> to the client.</li>
+</ol>
+<p>Print the sent and received messages in both programs.</p>
+<h5 id="example">Example</h5>
+<p><em>The server output should look like this:</em></p>
+<pre><code class="language-java">Server started!
+Received: Give me everything you have!
+Sent: All files were sent!
+</code></pre>
+<p><em>The client output should be as follows:</em></p>
+<pre><code class="language-java">Client started!
+Sent: Give me everything you have!
+Received: All files were sent!
+</code></pre>

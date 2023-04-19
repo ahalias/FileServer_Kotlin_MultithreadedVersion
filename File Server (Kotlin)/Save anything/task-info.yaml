@@ -1,0 +1,720 @@
+type: edu
+files:
+- name: test/FileServerTest.java
+  visible: false
+  text: |+
+    import org.hyperskill.hstest.stage.StageTest;
+    import org.hyperskill.hstest.testcase.CheckResult;
+    import org.hyperskill.hstest.testcase.TestCase;
+    import org.hyperskill.hstest.testing.TestedProgram;
+    import org.junit.AfterClass;
+
+    import java.io.File;
+    import java.net.ConnectException;
+    import java.nio.file.Files;
+    import java.nio.file.Paths;
+    import java.util.List;
+
+    import static org.hyperskill.hstest.common.Utils.sleep;
+
+    public class FileServerTest extends StageTest<String> {
+
+        private static final String onConnectExceptionMessage = "A client can't connect to the server!\n" +
+            "Make sure the server handles connections and doesn't stop after one client connected.";
+
+        public static final String serverDataPath = System.getProperty("user.dir") +
+            File.separator + "src" + File.separator + "server" + File.separator + "data" + File.separator;
+
+        public static final String clientDataPath = System.getProperty("user.dir") +
+            File.separator + "src" + File.separator + "client" + File.separator + "data" + File.separator;
+
+        private static String id;
+
+        @Override
+        public List<TestCase<String>> generate() {
+            return List.of(
+                new TestCase<String>()
+                    .feedbackOnException(ConnectException.class, onConnectExceptionMessage)
+                    .setDynamicTesting(this::checkServerStop),
+                new TestCase<String>()
+                    .feedbackOnException(ConnectException.class, onConnectExceptionMessage)
+                    .setDynamicTesting(this::checkPaths),
+                new TestCase<String>()
+                    .feedbackOnException(ConnectException.class, onConnectExceptionMessage)
+                    .setDynamicTesting(this::testSaveAndGet),
+                new TestCase<String>()
+                    .feedbackOnException(ConnectException.class, onConnectExceptionMessage)
+                    .setDynamicTesting(this::testGetAfterServerRestart),
+                new TestCase<String>()
+                    .feedbackOnException(ConnectException.class, onConnectExceptionMessage)
+                    .setDynamicTesting(this::testDeleteFiles)
+            );
+        }
+
+        // Test #1. Check if server stops
+        CheckResult checkServerStop() {
+
+            TestedProgram server = getServer();
+            TestedProgram client;
+
+            server.startInBackground();
+
+            client = getClient();
+            client.start();
+            client.execute("exit");
+
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+
+            if (!server.isFinished()) {
+                return CheckResult.wrong("You should stop the server if a client sends 'exit'");
+            }
+
+            return CheckResult.correct();
+        }
+
+        CheckResult checkPaths() {
+            // Test #2. Check folders with data
+            if (!Files.exists(Paths.get(serverDataPath)) || !Files.isDirectory(Paths.get(serverDataPath))) {
+                return CheckResult.wrong("Can't find '/server/data' folder. You should store all saved files in it!\n" +
+                    "The folder should be created even if the server wasn't started!");
+            }
+
+            if (!Files.exists(Paths.get(clientDataPath)) || !Files.isDirectory(Paths.get(clientDataPath))) {
+                return CheckResult.wrong("Can't find '/client/data' folder. You should store all files you want to " +
+                    "store on the server in it!\n" +
+                    "The folder should be created even if the client wasn't started!");
+            }
+            return CheckResult.correct();
+        }
+
+
+        CheckResult testSaveAndGet() {
+
+            TestedProgram server;
+            TestedProgram client;
+
+            Utils.createFiles(clientDataPath);
+
+            // Test #3. Check saving file on the server
+            server = getServer();
+            server.startInBackground();
+
+            File folder = new File(serverDataPath);
+            int numOfFilesBeforeAdding = Utils.numExistingFiles(folder);
+
+            client = getClient();
+            client.start();
+            client.execute("2\ntest_purpose_test1.txt");
+            String clientOutput = client.execute("");
+
+            if (!clientOutput.contains("Response says that file is saved! ID =")) {
+                return CheckResult.wrong("After saving a file on the server you should print:\n" +
+                    "Response says that file is saved! ID = **, where ** is an id of the file!");
+            }
+
+            id = Utils.findId(clientOutput);
+
+            int numOfFilesAfterAdding = Utils.numExistingFiles(folder);
+
+            if (numOfFilesAfterAdding == numOfFilesBeforeAdding) {
+                return CheckResult.wrong("Once a client saved a file on the server number of files in /server/data/ should be changed!");
+            }
+
+            client = getClient();
+            client.start();
+            clientOutput = client.execute("2\ntest_purpose_test2.txt\ntest_purpose_newFile.txt");
+
+            if (!clientOutput.contains("Response says that file is saved! ID =")) {
+                return CheckResult.wrong("After saving a file on the server you should print:\n" +
+                    "Response says that file is saved! ID = **, where ** is an id of the file!");
+            }
+
+            if (!Utils.isServerFileExists("test_purpose_newFile.txt")) {
+                return CheckResult.wrong("Can't find a file after saving on the server." +
+                    "You should save client's files in /server/data/ folder!");
+            }
+
+            String savedFileContent = Utils.getServerFileContent("test_purpose_newFile.txt");
+
+            if (!savedFileContent.equals("test2")) {
+                return CheckResult.wrong("A file after saving has wrong content!");
+            }
+
+            // Test #4. Check getting files
+            client = getClient();
+            client.start();
+            clientOutput = client.execute("1\n1\ntest_purpose_notExist.txt");
+
+            if (!clientOutput.contains("The response says that this file is not found!")) {
+                return CheckResult.wrong("When client tries to get a file by name that doesn't exist you should print:\n" +
+                    "\"The response says that this file is not found!\"");
+            }
+
+            client = getClient();
+            client.start();
+            clientOutput = client.execute("1\n2\n" + (id + "511"));
+
+            if (!clientOutput.contains("The response says that this file is not found!")) {
+                return CheckResult.wrong("When client tries to get a file by ID that doesn't exist you should print:\n" +
+                    "\"The response says that this file is not found!\"");
+            }
+
+            client = getClient();
+            client.start();
+            client.execute("1\n1\ntest_purpose_newFile.txt\ntest_purpose_get.txt");
+
+            if (!Utils.isClientFileExists("test_purpose_get.txt")) {
+                return CheckResult.wrong("Can't find a file after getting it from the server by name.\n" +
+                    "You should store all downloaded files from the server in /client/data/ folder.");
+            }
+
+            String downloadedByNameFileContent = Utils.getClientFileContent("test_purpose_get.txt");
+            if (!downloadedByNameFileContent.equals("test2")) {
+                return CheckResult.wrong("After getting a file from the server by name it has wrong content!");
+            }
+
+            client = getClient();
+            client.start();
+            client.execute("1\n2\n" + id + "\ntest_purpose_get_id.txt");
+
+            if (!Utils.isClientFileExists("test_purpose_get_id.txt")) {
+                return CheckResult.wrong("Can't find a file after getting it from the server by ID.\n" +
+                    "You should store all downloaded files from the server in /client/data/ folder.");
+            }
+
+            String downloadedByIdFileContent = Utils.getClientFileContent("test_purpose_get_id.txt");
+            if (!downloadedByIdFileContent.equals("test1")) {
+                return CheckResult.wrong("After getting a file from the server by ID it has wrong content!");
+            }
+
+            client = getClient();
+            client.start();
+            client.execute("exit");
+
+            return CheckResult.correct();
+        }
+
+        CheckResult testGetAfterServerRestart() {
+
+            TestedProgram server = getServer();
+            TestedProgram client = getClient();
+
+            server.startInBackground();
+            client.start();
+            client.execute("1\n1\ntest_purpose_newFile.txt\ntest_purpose_get_after_restart.txt");
+
+            if (!Utils.isClientFileExists("test_purpose_get_after_restart.txt")) {
+                return CheckResult.wrong("Can't find a file after getting it from the server by name.\n" +
+                    "Looks like your server lose all stored files after restart.\n" +
+                    "You should store all downloaded files from the server in /client/data/ folder.");
+            }
+
+            client = getClient();
+            client.start();
+            client.execute("1\n2\n" + id + "\ntest_purpose_get_by_id_after_restart.txt");
+
+            if (!Utils.isClientFileExists("test_purpose_get_by_id_after_restart.txt")) {
+                return CheckResult.wrong("Can't find a file after getting it from the server by ID.\n" +
+                    "Looks like your server lose all stored files after restart.\n" +
+                    "You should store all downloaded files from the server in /client/data/ folder.");
+            }
+
+            client = getClient();
+            client.start();
+            client.execute("exit");
+
+            return CheckResult.correct();
+        }
+
+        CheckResult testDeleteFiles() {
+
+            TestedProgram server = getServer();
+            TestedProgram client = getClient();
+
+            File folder = new File(serverDataPath);
+            int numOfFilesBeforeDeleting = Utils.numExistingFiles(folder);
+
+            server.startInBackground();
+            client.start();
+            client.execute("3\n1\ntest_purpose_newFile.txt");
+
+            sleep(2000);
+            int numOfFilesAfterDeletingByName = Utils.numExistingFiles(folder);
+            if (numOfFilesBeforeDeleting == numOfFilesAfterDeletingByName) {
+                return CheckResult.wrong("Once a client deleted a file by name from the server, " +
+                    "number of files in /server/data/ should be fewer!");
+            }
+
+            client = getClient();
+            client.start();
+            client.execute("3\n2\n" + id);
+
+            sleep(2000);
+            int numOfFilesAfterDeletingById = Utils.numExistingFiles(folder);
+            if (numOfFilesAfterDeletingByName == numOfFilesAfterDeletingById) {
+                return CheckResult.wrong("Once a client deleted a file by ID from the server, " +
+                    "number of files in /server/data/ should be fewer!");
+            }
+
+            client = getClient();
+            client.start();
+            client.execute("exit");
+
+            return CheckResult.correct();
+        }
+
+
+        @AfterClass
+        public static void afterTestDeleteFiles() {
+            Utils.deleteTestFiles();
+        }
+
+        public static TestedProgram getClient() {
+            return new TestedProgram("client");
+        }
+
+        public static TestedProgram getServer() {
+            return new TestedProgram("server");
+        }
+    }
+
+
+  learner_created: false
+- name: test/Utils.java
+  visible: false
+  text: |+
+    import org.hyperskill.hstest.exception.outcomes.WrongAnswer;
+
+    import java.io.File;
+    import java.io.FileWriter;
+    import java.io.IOException;
+    import java.nio.file.Files;
+    import java.nio.file.Paths;
+    import java.util.Arrays;
+    import java.util.regex.Matcher;
+    import java.util.regex.Pattern;
+
+    public class Utils {
+        public static String findId(String output) {
+            Pattern pattern = Pattern.compile("ID = (\\d+)");
+            Matcher matcher = pattern.matcher(output);
+
+            if (matcher.find()) {
+                int count = matcher.groupCount();
+                if (count != 1) {
+                    throw new WrongAnswer("Can't find ID of the file in the output!\nMake sure you print ID like in examples!");
+                }
+                return matcher.group(1);
+            } else {
+                throw new WrongAnswer("Can't find ID of the file in the output!\nMake sure you print ID like in examples!");
+            }
+        }
+
+        public static void deleteTestFiles() {
+            File dir = new File(FileServerTest.serverDataPath);
+
+            File[] files = dir.listFiles();
+            if (files != null) {
+                for (File file : files) {
+                    if (file.getName().startsWith("test_purpose_")) {
+                        boolean isDeleted = file.delete();
+                        if (!isDeleted) {
+                            throw new WrongAnswer("Can't delete test files. Maybe they are not closed!");
+                        }
+                    }
+                }
+            }
+
+            File cdir = new File(FileServerTest.clientDataPath);
+            files = cdir.listFiles();
+            if (files != null) {
+                for (File file : files) {
+                    if (file.getName().startsWith("test_purpose_")) {
+                        boolean isDeleted = file.delete();
+                        if (!isDeleted) {
+                            throw new WrongAnswer("Can't delete test files. Maybe their input streams are not closed!");
+                        }
+                    }
+                }
+            }
+        }
+
+        public static void createFiles(String clientDataPath) {
+
+            for (int i = 0; i < 2; i++) {
+                try {
+                    File file = new File(clientDataPath + String.format("test_purpose_test%d.txt", i + 1));
+                    if (!file.exists()) file.createNewFile();
+                    FileWriter writer = new FileWriter(file, false);
+                    writer.write(String.format("test%d", i + 1));
+                    writer.close();
+                } catch (IOException e) {
+                    throw new RuntimeException("Can't create test files!");
+                }
+
+            }
+        }
+
+        public static int numExistingFiles(File file) {
+            File[] files = file.listFiles();
+            if (files == null) {
+                return 0;
+            }
+            return (int) Arrays.stream(files).filter(File::exists).count();
+        }
+
+        private static boolean isFileExists(String path) {
+            return Files.exists(Paths.get(path)) && !Files.isDirectory(Paths.get(path));
+        }
+
+        public static boolean isClientFileExists(String fileName) {
+            return isFileExists(FileServerTest.clientDataPath + fileName);
+        }
+
+        public static boolean isServerFileExists(String fileName) {
+            return isFileExists(FileServerTest.serverDataPath + fileName);
+        }
+
+        public static String getServerFileContent(String fileName) {
+            return getFileContent(FileServerTest.serverDataPath + fileName);
+        }
+
+        public static String getClientFileContent(String fileName) {
+            return getFileContent(FileServerTest.clientDataPath + fileName);
+        }
+
+        private static String getFileContent(String fileName) {
+            try {
+                return new String(Files.readAllBytes(Paths.get(fileName))).trim();
+            } catch (IOException e) {
+            }
+            throw new WrongAnswer("Can't read files content.\n" +
+                "Make sure you close input/output streams after reading or writing files!");
+        }
+
+    }
+
+
+  learner_created: false
+- name: src/server/Server.kt
+  visible: true
+  text: |-
+    package server
+
+    import java.io.DataInputStream
+    import java.io.DataOutputStream
+    import java.io.File
+    import java.net.InetAddress
+    import java.net.ServerSocket
+    import java.util.LinkedList
+    import kotlin.system.exitProcess
+
+    object Main {
+        @JvmStatic
+        fun main(args: Array<String>) {
+
+            val address = "127.0.0.1"
+            val port = 23456
+
+            val server = ServerSocket(port, 50, InetAddress.getByName(address))
+            println("Server started!")
+
+            val fileList = LinkedList<String>()
+            val filePath = "src/server/data/"
+
+            while (true) {
+                val socket = server.accept()
+
+                val input = DataInputStream(socket.getInputStream())
+                val output = DataOutputStream(socket.getOutputStream())
+
+                val serverMessage = input.readUTF().split(" ", limit=3)
+                when(serverMessage[0]) {
+                    "PUT" -> if (fileList.none { it == serverMessage[1] } == true) {
+                        val file = File("${filePath}${serverMessage[1]}")
+                        file.writeText(serverMessage[2])
+                        fileList.add(serverMessage[1])
+                        output.writeUTF("200")
+                    } else {
+                        output.writeUTF("403")
+                    }
+                    "GET" -> if (fileList.any { it == serverMessage[1] } == true) {
+                        val file = File("${filePath}${serverMessage[1]}")
+                        val content = file.readText()
+                        output.writeUTF("200 $content")
+                    } else output.writeUTF("404")
+                    "DELETE" -> if (fileList.any { it == serverMessage[1] } == true) {
+                        File("${filePath}${serverMessage[1]}").delete()
+                        fileList.remove(serverMessage[1])
+                        output.writeUTF("200")
+                    } else output.writeUTF("404")
+                    "EXIT" -> {
+                        server.close()
+                        exitProcess(1)
+                    }
+                }
+                socket.close()
+            }
+        }
+    }
+  learner_created: true
+- name: src/server/Client.kt
+  visible: true
+  text: |-
+    package client
+
+    import java.io.DataInputStream
+    import java.io.DataOutputStream
+    import java.net.InetAddress
+    import java.net.Socket
+
+    object Main {
+        @JvmStatic
+        fun main(args: Array<String>) {
+            val address = "127.0.0.1"
+            val port = 23456
+
+            val socket = Socket(InetAddress.getByName(address), port)
+
+            val input = DataInputStream(socket.getInputStream())
+            val output = DataOutputStream(socket.getOutputStream())
+
+
+            fun sendRequest(status: String) {
+                println("Enter filename:\n")
+                val fileRequest = readln()
+                if (status == "PUT") {
+                    println("Enter file content:\n")
+                    val content = readln()
+                    val clientResponse = "${status} ${fileRequest} ${content}"
+                    output.writeUTF(clientResponse)
+                } else {
+                    output.writeUTF("${status} ${fileRequest}")
+                }
+                println("The request was sent.")
+            }
+
+            fun closeConnection() {
+                socket.close()
+                System.exit(0)
+            }
+
+            fun getResponse() =  input.readUTF()
+
+            println("Enter action (1 - get a file, 2 - create a file, 3 - delete a file):")
+            val choice = readln().uppercase()
+
+            when(choice) {
+                "2" -> {
+                    sendRequest("PUT")
+                    if (getResponse() == "200") println("The response says that file was created!\n") else { println("The response says that creating the file was forbidden!\n") }
+                    closeConnection()
+                }
+                "1" -> {
+                    sendRequest("GET")
+                    val response = getResponse().split(" ")
+                    if (response[0] == "200") println("The content of the file is: ${response[1]}\n") else println("The response says that the file was not found!\n")
+                    closeConnection()
+                }
+                "3" -> {
+                    sendRequest("DELETE")
+                    if (getResponse() == "200") println("The response says that the file was successfully deleted!\n") else println("The response says that the file was not found!\n")
+                    closeConnection()
+                }
+                "EXIT" -> {
+                    output.writeUTF("EXIT ")
+                    println("The request was sent.")
+                    closeConnection()
+                }
+            }
+        }
+    }
+  learner_created: true
+- name: src/server/data/GUW8IpyM
+  visible: true
+  learner_created: true
+- name: src/server/data/sqpNXI0T
+  visible: true
+  learner_created: true
+- name: src/server/data/984pJ1VE
+  visible: true
+  learner_created: true
+- name: src/server/data/6ohVb4QF
+  visible: true
+  learner_created: true
+- name: src/server/data/M3p72L7b
+  visible: true
+  learner_created: true
+- name: src/server/data/ZoAV6bF6
+  visible: true
+  learner_created: true
+- name: src/server/data/TJKPTLUG
+  visible: true
+  learner_created: true
+- name: src/server/data/EHjJ7wrO
+  visible: true
+  learner_created: true
+- name: src/server/data/fileList.txt
+  visible: true
+  learner_created: true
+- name: src/server/data/GzFVYE42
+  visible: true
+  learner_created: true
+- name: src/server/data/6OZ3ucgg
+  visible: true
+  learner_created: true
+- name: src/server/data/id/5825302
+  visible: true
+  learner_created: true
+- name: src/server/data/id/7972441
+  visible: true
+  learner_created: true
+- name: src/server/data/id/6887835
+  visible: true
+  learner_created: true
+- name: src/server/data/id/1554272
+  visible: true
+  learner_created: true
+- name: src/server/data/id/701506
+  visible: true
+  learner_created: true
+- name: src/server/data/id/6364253
+  visible: true
+  learner_created: true
+- name: src/server/data/mpXNNw4Ma
+  visible: true
+  learner_created: true
+- name: src/server/data/id/1774374
+  visible: true
+  learner_created: true
+- name: src/server/data/id/8611683
+  visible: true
+  learner_created: true
+- name: src/server/data/id/2552191
+  visible: true
+  learner_created: true
+- name: src/server/data/id/7094235
+  visible: true
+  learner_created: true
+- name: src/server/data/id/5736188
+  visible: true
+  learner_created: true
+- name: src/server/data/id/6843634
+  visible: true
+  learner_created: true
+- name: src/server/data/rywrWxyh
+  visible: true
+  learner_created: true
+- name: src/server/data/id/2612926
+  visible: true
+  learner_created: true
+- name: src/server/data/4S0xNS
+  visible: true
+  learner_created: true
+- name: src/server/data/id/3375606
+  visible: true
+  learner_created: true
+- name: src/server/data/J2uySl
+  visible: true
+  learner_created: true
+- name: src/server/data/id/3587089
+  visible: true
+  learner_created: true
+- name: src/server/data/kTCOAp
+  visible: true
+  learner_created: true
+- name: src/server/data/id/9565243
+  visible: true
+  learner_created: true
+- name: src/server/data/id/258468
+  visible: true
+  learner_created: true
+- name: src/server/data/id/3874257
+  visible: true
+  learner_created: true
+- name: src/server/data/id/9335934
+  visible: true
+  learner_created: true
+- name: src/server/data/id/2165489
+  visible: true
+  learner_created: true
+- name: src/server/data/kePM9cROi
+  visible: true
+  learner_created: true
+- name: src/server/data/id/7780286
+  visible: true
+  learner_created: true
+- name: src/server/data/id/3052488
+  visible: true
+  learner_created: true
+- name: src/server/data/XZiwfZR
+  visible: true
+  learner_created: true
+- name: src/server/data/id/6409212
+  visible: true
+  learner_created: true
+- name: src/server/data/id/6877357
+  visible: true
+  learner_created: true
+- name: src/server/data/id/2925052
+  visible: true
+  learner_created: true
+- name: src/server/data/id/6283052
+  visible: true
+  learner_created: true
+- name: src/server/data/xNZeSq0G
+  visible: true
+  learner_created: true
+- name: src/server/data/id/7536162
+  visible: true
+  learner_created: true
+- name: src/server/data/id/4108256
+  visible: true
+  learner_created: true
+- name: src/server/data/id/8482032
+  visible: true
+  learner_created: true
+- name: src/server/data/id/5911739
+  visible: true
+  learner_created: true
+- name: src/server/data/id/6952409
+  visible: true
+  learner_created: true
+- name: src/server/data/id/9144942
+  visible: true
+  learner_created: true
+- name: src/server/data/id/8677688
+  visible: true
+  learner_created: true
+- name: src/server/data/id/2070900
+  visible: true
+  learner_created: true
+- name: src/server/data/id/4404753
+  visible: true
+  learner_created: true
+- name: src/server/data/id/9709182
+  visible: true
+  learner_created: true
+- name: src/server/data/id/3372919
+  visible: true
+  learner_created: true
+- name: src/server/data/id/7993013
+  visible: true
+  learner_created: true
+- name: src/server/data/id/4574882
+  visible: true
+  learner_created: true
+- name: src/server/data/id/2631058
+  visible: true
+  learner_created: true
+feedback_link: https://hyperskill.org/learn/step/27712#comment
+status: Solved
+feedback:
+  message: Well done! You've finished the project. Select a new project on <a href="https://hyperskill.org/projects">Hyperskill</a>
+    to continue learning.
+  time: "Wed, 19 Apr 2023 16:45:13 UTC"
+record: -1
